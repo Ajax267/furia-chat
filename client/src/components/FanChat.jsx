@@ -17,7 +17,7 @@ export default function FanChat() {
             // Forçar embed em DEV
             if (import.meta.env.DEV) {
                 nm.start = Date.now() - 1000;
-                nm.channel = `https://player.twitch.tv/?channel=furiatv&parent=localhost`;
+                nm.channel = `https://player.twitch.tv/?channel=furiatv&parent=https://chat-furia-c918aa144b28.herokuapp.com`;
             }
             setNextMatch(nm);
         });
@@ -26,9 +26,7 @@ export default function FanChat() {
 
     return (
         <div className="h-screen flex flex-col bg-gray-100">
-            <header className="bg-black text-white py-4 text-center text-xl font-bold">
-                FURIA Fans Chat
-            </header>
+          
 
             {/* Se houver próximo jogo e ainda não tiver começado */}
             {nextMatch && Date.now() < nextMatch.start && (
