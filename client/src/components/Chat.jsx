@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3001');
+// const socket = io('http://localhost:3001', {
+//     transports: ['polling','websocket'],
+//     withCredentials: true
+//   });
+  
+const socket = io({ withCredentials: true });
 
 export default function Chat() {
   const [username, setUsername] = useState('');

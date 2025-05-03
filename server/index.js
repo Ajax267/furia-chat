@@ -9,7 +9,19 @@ const app = express();
 app.use(cors());
 
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
+const allowedOrigins = [
+    'http://localhost:5173',             // Vite dev server
+    'https://chat-furia-c918aa144b28.herokuapp.com/'  // URL do Heroku
+  ];
+  
+  const io = new Server(httpServer, {
+    cors: {
+      origin: allowedOrigins,
+      methods: ['GET', 'POST'],
+      credentials: true
+    }
+  });
+  
 
 // Configurações de cores e simulação
 const CORES      = ['red-500', 'green-500', 'blue-500', 'yellow-500'];
