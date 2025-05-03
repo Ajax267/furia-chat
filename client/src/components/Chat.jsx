@@ -6,7 +6,12 @@ import { io } from 'socket.io-client';
 //     withCredentials: true
 //   });
   
-const socket = io({ withCredentials: true });
+const socket = import.meta.env.PROD
+  ? io({ withCredentials: true })
+  : io('http://localhost:3001', {
+      transports: ['polling','websocket'],
+      withCredentials: true
+    });
 
 export default function Chat() {
   const [username, setUsername] = useState('');
