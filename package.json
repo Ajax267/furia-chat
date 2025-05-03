@@ -7,7 +7,7 @@
     "scripts": {
       "start": "cd server && npm install && node index.js",
   
-       "heroku-postbuild": "cd client && npm install && npm run build"
+      "postinstall": "cd client && npm install --production=false && npm run build"
     }
   }
   
