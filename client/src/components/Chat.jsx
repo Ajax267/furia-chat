@@ -101,20 +101,7 @@ export default function Chat() {
 
     // Render chat
     return (
-        <div className="h-screen flex flex-col bg-gray-100">
-            {nextMatch && Date.now() < nextMatch.start ? (
-                <div className="p-4 text-center bg-yellow-200 text-black">
-                    Próximo jogo começa em <Countdown target={nextMatch.start} />
-                </div>
-            ) : nextMatch ? (
-                <div className="flex justify-center p-4">
-                    <iframe
-                        src={nextMatch.channel}
-                        height="480" width="720"
-                        allowFullScreen
-                    />
-                </div>
-            ) : null}
+        <div className="h-screen flex flex-col bg-gray-100">            
             <Scoreboard />
             <header className="bg-black text-white py-4 text-center text-xl font-bold">
                 FURIA Fans Chat

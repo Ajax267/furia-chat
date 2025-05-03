@@ -85,8 +85,12 @@ async function updateNextMatch() {
         nextMatch = {
             start: new Date(next.begin_at).getTime(),
             channel: next.live_url ||
-                'https://player.twitch.tv/?channel=furiatv&parent=https://chat-furia-c918aa144b28.herokuapp.com/'
+                'https://player.twitch.tv/?channel=furiatv&parent=https://chat-furia-c918aa144b28.herokuapp.com'
         };
+        if (process.env.NODE_ENV !== 'production') {
+            // Força o início em DEV
+            nextMatch.start = Date.now() - 1000;
+        }
         io.emit('nextMatch', nextMatch);
 
     } catch (err) {
