@@ -101,17 +101,6 @@ async function updateNextMatch() {
 updateNextMatch();
 setInterval(updateNextMatch, 60 * 60 * 1000);
 
-// // Simulação de rounds (se quiser usar em vez do HLTV)
-// setInterval(() => {
-//   if(gameStatus.finished) return;
-//   gameStatus.round++;
-//   const win = Math.random()<0.5?'f':'o';
-//   gameStatus.score[win]++;
-//   gameStatus.lastWinner = win==='f'?'FURIA':'OPPONENTS';
-//   if(gameStatus.round>=30) gameStatus.finished=true;
-//   io.emit('gameStatus', gameStatus);
-// }, 10000);
-
 io.on('connection', socket => {
     // envia status e agendamento ao conectar
     if (nextMatch) socket.emit('nextMatch', nextMatch);
