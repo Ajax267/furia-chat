@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 
 export default function Landing() {
   return (
-    <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-b from-gray-800 to-black text-white">
+    <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-b from-gray-800 to-black text-white">
       <h1 className="text-5xl font-extrabold mb-6">FURIA Fans Hub</h1>
       <p className="text-lg mb-8 text-center max-w-xl">
         Escolha seu modo de interação:
