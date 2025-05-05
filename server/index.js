@@ -4,9 +4,8 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const axios = require('axios');
-require('dotenv').config();  // carrega o .env
-// const { HLTV } = require('hltv');  // para próxima partida (importante instalar)
-
+const stringSimilarity = require('string-similarity');
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
@@ -14,142 +13,156 @@ app.use(cors());
 // Servir front-end
 const distPath = path.join(__dirname, '../client/dist');
 app.use(express.static(distPath));
-app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-});
+app.get(/.*/, (req, res) => res.sendFile(path.join(distPath, 'index.html')));
 
-const httpServer = http.createServer(app);
-// CORS do Socket.IO: apenas origens desejadas
-const io = new Server(httpServer, {
-    cors: {
-        origin: [
-            'http://localhost:5173',                  // dev
-            'https://chat-furia-c918aa144b28.herokuapp.com'         // prod
-        ],
-        methods: ['GET', 'POST'],
-        credentials: true
-    }
-});
-
-// Chat de torcida: cores e simulação de jogo (ou real-time HLTV)
-const CORES = ['red-500', 'green-500', 'blue-500', 'yellow-500'];
-const userColors = {};
-let gameStatus = { round: 0, score: { f: 0, o: 0 }, lastWinner: null, finished: false };
-let nextMatch = null;
-
-async function updateNextMatch() {
-    try {
-        const perPage = 100;           // quantos itens por página
-        let page = 1;
-        let furiaMatches = [];
-
-        // enquanto não achar e ainda tiver páginas
-        while (!furiaMatches.length) {
-            const res = await axios.get(
-                'https://api.pandascore.co/csgo/matches/upcoming',
-                {
-                    params: {
-                        'page[size]': perPage,
-                        'page[number]': page
-                    },
-                    headers: {
-                        Authorization: `Bearer ${process.env.PANDASCORE_TOKEN}`
-                    }
-                }
-            );
-
-            const data = res.data;
-            if (!data.length) break;    // acabou as páginas
-
-            // filtra só FURIA nessa página
-            furiaMatches = data.filter(m =>
-                m.opponents.some(o =>
-                    o.opponent.name
-                        .toLowerCase()
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .replace(/[^a-z0-9]/g, '')
-                        .includes('furia')
-                )
-            );
-
-            page++;
-        }
-
-        if (!furiaMatches.length) {
-            console.warn('Nenhum próximo jogo da FURIA encontrado em nenhuma página.');
-            return;
-        }
-
-        const next = furiaMatches[0];
-        nextMatch = {
-            start: new Date(next.begin_at).getTime(),
-            channel: next.live_url ||
-                'https://player.twitch.tv/?channel=furiatv&parent=https://chat-furia-c918aa144b28.herokuapp.com'
-        };
-        if (process.env.NODE_ENV !== 'production') {
-            // Força o início em DEV
-            nextMatch.start = Date.now() - 1000;
-        }
-        io.emit('nextMatch', nextMatch);
-
-    } catch (err) {
-        console.error('Erro ao buscar próximo jogo da FURIA:', err);
-    }
+// --- Helpers ---
+function normalize(text) {
+  return text
+    .normalize('NFD')
+    .replace(/[̀-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
+    .toLowerCase();
 }
 
-updateNextMatch();
-setInterval(updateNextMatch, 60 * 60 * 1000);
+// Configuração do cliente Pandascore
+const pandascore = axios.create({
+  baseURL: 'https://api.pandascore.co',
+  headers: { Authorization: `Bearer ${process.env.PANDASCORE_TOKEN}` }
+});
+let teamId = null;
+
+// Inicializa o ID do time FURIA
+async function initTeamId() {
+  try {
+    const res = await pandascore.get('/csgo/teams', {
+      params: { 'filter[name]': 'FURIA', 'page[size]': 1 }
+    });
+    if (res.data.length) {
+      teamId = res.data[0].id;
+      console.log('initTeamId -> teamId:', teamId);
+    }
+  } catch (err) {
+    console.error('Erro initTeamId:', err.message);
+  }
+}
+
+// Busca escalação usando endpoint de players
+async function fetchLineup() {
+  if (!teamId) await initTeamId();
+  try {
+    const res = await pandascore.get('/csgo/players', {
+      params: { 'filter[team_id]': teamId, 'page[size]': 50 }
+    });
+    console.log('fetchLineup -> raw data:', res.data);
+    return res.data.map(p => p.name);
+  } catch (err) {
+    console.error('Erro fetchLineup:', err.message);
+    return null;
+  }
+}
+
+// Estatísticas (últimas n partidas): média kills, K/D e win rate
+async function fetchStats(n = 10) {
+    if (!teamId) await initTeamId();
+    let page = 1, matches = [];
+    while (matches.length < n) {
+      const res = await pandascore.get('/csgo/matches', {
+        params: {
+          'filter[opponents]': teamId,   // <-- CORREÇÃO AQUI
+          sort: '-begin_at',
+          'page[size]': n,
+          'page[number]': page
+        }
+      });
+      if (!res.data.length) break;
+      matches.push(...res.data);
+      page++;
+    }
+  matches = matches.slice(0, n);
+  let totalKills = 0, totalDeaths = 0, wins = 0;
+  matches.forEach(m => {
+    const ours = m.opponents.find(o => o.opponent.id === teamId);
+    const them = m.opponents.find(o => o.opponent.id !== teamId);
+    if (ours && ours.stats) {
+      totalKills += ours.stats.kills || 0;
+      totalDeaths += ours.stats.deaths || 0;
+      if (ours.score > (them && them.score)) wins++;
+    }
+  });
+  const count = matches.length || 1;
+  return {
+    sampleSize: matches.length,
+    avgKills: (totalKills / count).toFixed(1),
+    avgKD: totalDeaths > 0 ? (totalKills / totalDeaths).toFixed(2) : 'N/A',
+    winRate: ((wins / count) * 100).toFixed(1) + '%'
+  };
+}
+
+// Histórico – últimos 3 confrontos contra FURIA
+async function fetchHistory() {
+  if (!teamId) await initTeamId();
+  try {
+    const res = await pandascore.get('/csgo/matches', {
+      params: {
+        'filter[opponents]': teamId,   // <-- CORREÇÃO AQUI
+        sort: '-begin_at',
+        'page[size]': 3
+      }
+    });
+    return res.data.map(m => {
+      const ours   = m.opponents.find(o => o.opponent.id === teamId);
+      const theirs = m.opponents.find(o => o.opponent.id !== teamId);
+      return `${m.begin_at.split('T')[0]}: FURIA ${ours.score} x ${theirs.score} ${theirs.opponent.name}`;
+    });
+  } catch {
+    return null;
+  }
+}
+
+// Padrões de NLP
+const nextMatchPatterns = [/próximo jogo/, /próxima partida/, /quando.*jogo/];
+const lineupPatterns    = [/escala[cç]ao/, /time inicial/];
+const statsPatterns     = [/estat[ií]stica/, /desempenho/, /kd/];
+const historyPatterns   = [/hist[oó]rico/, /confrontos anteriores/];
+const greetingPatterns  = [/^oi\b/, /^ol[áa]?\b/, /^salve\b/];
+
+// Inicia background
+initTeamId();
+
+// HTTP + Socket.IO
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: ['http://localhost:5173','https://chat-furia-c918aa144b28.herokuapp.com'], methods: ['GET','POST', 'OPTIONS'], credentials: true }
+});
 
 io.on('connection', socket => {
-    // envia status e agendamento ao conectar
-    if (nextMatch) socket.emit('nextMatch', nextMatch);
-    socket.emit('gameStatus', gameStatus);
-
-    // atribui cor ao fã
-    userColors[socket.id] = `text-${CORES[Math.floor(Math.random() * CORES.length)]}`;
-
-    // rota Fan Chat
-    socket.on('mensagem', ({ texto, username }) => {
-        io.emit('mensagem', {
-            texto,
-            username,
-            id: socket.id,
-            color: userColors[socket.id]
-        });
-    });
-    socket.on('reaction', ({ emoji, username }) => {
-        io.emit('reaction', {
-            emoji,
-            username,
-            id: socket.id,
-            color: userColors[socket.id]
-        });
-    });
-
-    // rota Chatbot rule-based
-    socket.on('userMessage', ({ text }) => {
-        const lower = text.toLowerCase();
-        let reply;
-        if (/(próximo jogo|quando.*jogo)/i.test(lower) && nextMatch) {
-            const d = new Date(nextMatch.start);
-            reply = `O próximo jogo da FURIA é em ${d.toLocaleString()}.`;
-        } else if (/placar/i.test(lower)) {
-            const { f, o } = gameStatus.score;
-            reply = `O placar atual é FURIA ${f} x ${o} OPPONENTS.`;
-        } else if (/oi|olá|salve/i.test(lower)) {
-            reply = 'Olá! Pergunte-me sobre placar ou próximo jogo da FURIA.';
-        } else {
-            reply = 'Desculpe, só sei falar de placar e calendário da FURIA.';
-        }
-        socket.emit('botMessage', { text: reply });
-    });
-
-    socket.on('disconnect', () => {
-        delete userColors[socket.id];
-    });
+  socket.on('userMessage', async ({ text }) => {
+    const msg = normalize(text);
+    let reply;
+    if (nextMatchPatterns.some(rx => rx.test(text))) {
+        const d = new Date(nextMatch.start);
+        reply = `Próximo jogo: ${d.toLocaleString('pt-BR')}.`;
+    } else if (lineupPatterns.some(rx => rx.test(text))) {
+      const lineup = await fetchLineup();
+      reply = lineup ? `Escalação: ${lineup.join(', ')}.` : 'Erro ao obter escalação.';
+    } else if (statsPatterns.some(rx => rx.test(text))) {
+      const stats = await fetchStats(10);
+      reply = stats ? `Últimas ${stats.sampleSize} partidas - kills: ${stats.avgKills}, K/D: ${stats.avgKD}, vitória: ${stats.winRate}.` : 'Erro ao obter estatísticas.';
+    } else if (historyPatterns.some(rx => rx.test(text))) {
+      const history = await fetchHistory();
+      reply = history ? `Histórico:\n- ${history.join('\n- ')}` : 'Erro ao obter histórico.';
+    } else if (greetingPatterns.some(rx => rx.test(text))) {
+      reply = 'E aí, torcedor! Pergunte sobre próximo jogo, escalação, estatísticas ou histórico.';
+    } else {
+      const patterns = [...nextMatchPatterns,...lineupPatterns,...statsPatterns,...historyPatterns].map(r => r.source);
+      const { bestMatch } = stringSimilarity.findBestMatch(msg, patterns);
+      reply = bestMatch.rating > 0.6
+        ? 'Não entendi bem, mas tente perguntar sobre próximo jogo, escalação, estatísticas ou histórico.'
+        : 'Não entendi. Pergunte sobre próximo jogo, escalação, estatísticas ou histórico.';
+    }
+    socket.emit('botMessage', { text: reply });
+  });
 });
 
-httpServer.listen(process.env.PORT || 3001, () => {
-    console.log('Server rodando na porta', process.env.PORT || 3001);
-});
+const PORT = process.env.PORT || 3001;
+httpServer.listen(PORT, () => console.log(`Server rodando na porta ${PORT}`));
