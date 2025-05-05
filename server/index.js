@@ -162,7 +162,7 @@ async function fetchHistory() {
 }
 
 // Padrões de NLP
-const nextMatchPatterns = [/próximo jogo/, /próxima partida/, /quando.*jogo/];
+const nextMatchPatterns = [/pr[oó]ximo jogo/, /pr[oó]xima partida/, /quando.*jogo/];
 const lineupPatterns = [/escala[cç][aã]o/, /time inicial/];
 const statsPatterns = [/estat[ií]stica/, /desempenho/, /kd/];
 const historyPatterns = [/hist[oó]rico/, /confrontos anteriores/];
